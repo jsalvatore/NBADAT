@@ -7,3 +7,6 @@ Block = +2 PTs
 Turnover = -0.5 PTs
 Double-Double = +1.5PTs (MAX 1 PER PLAYER: Points, Rebounds, Assists, Blocks, Steals)
 Triple-Double = +3PTs (MAX 1 PER PLAYER: Points, Rebounds, Assists, Blocks, Steals)
+
+
+http://www.dailyfantasysports101.com/basketball-math-stats-guide/
