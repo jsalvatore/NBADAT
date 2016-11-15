@@ -1,5 +1,11 @@
 library(stattleshipR)
 library(dplyr)
+library(RMySQL)
+
+dbCon <- dbConnect(
+  MySQL(), host = "analytics.cimantxcvy1t.us-east-1.rds.amazonaws.com",
+  port = 3306, user = user, password = password, dbname = "nba")
+
 ## Get your free token from www.stattleship.com
 set_token("9ffe91d47c6b7c159965a8340a4d9106")
 
@@ -11,6 +17,14 @@ ep <- 'game_logs'
 q_body <- list(status='ended', interval_type='regularseason')
 gls <- ss_get_result(sport=sport, league=league, ep=ep, query=q_body, walk=TRUE)  
 game_logs<-do.call('rbind', lapply(gls, function(x) x$game_logs))  
+
+
+dbWriteTable(dbCon, value = game_logs, name = "gamelogs", append = TRUE, row.names = FALSE) 
+
+dbGetQuery(dbCon, "SELECT * FROM gamelogs limit 10;")
+
+
+
 
 players<-do.call('rbind', lapply(gls, function(x) x$players))
 colnames(players)[1] <- 'player_id'
