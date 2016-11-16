@@ -1,5 +1,6 @@
 library("Hmisc")
 library("RMySQL")
+library(dplyr)
 
 dbCon <- dbConnect(
   MySQL(), host = Credentials$host,
@@ -53,18 +54,94 @@ dat %>% filter(gameDate == Sys.Date() - 1) %>% arrange(-fantasyPoints) %>%
   select(first_name, last_name, position_abbreviation, fantasyPoints)
 
 
+dat$Name <- paste(dat$first_name, dat$last_name)
+dat$Name <- ifelse(dat$Name == "Moe Harkless", "Maurice Harkless", dat$Name)
+dat$Name <- ifelse(dat$Name == "Larry Nance", "Larry Nance Jr.", dat$Name)
+dat$minutesPlayed <- dat$time_played_total / 60
+dat$pointsPerMinute <- dat$fantasyPoints / dat$minutesPlayed
+
+
+players$Name <- paste(players$first_name, players$last_name)
+players$Name <- ifelse(players$Name == "Moe Harkless", "Maurice Harkless", players$Name)
+players$Name <- ifelse(players$Name == "Larry Nance", "Larry Nance Jr.", players$Name)
+
+
+salaries <- read.csv("C:/Users/joe/Downloads/DKSalaries.csv")
+head(salaries)
+
+
+test <- merge(players, salaries, by = c("Name"))
+salaries$check <- salaries$Name %in% test$Name 
 
 
 
 
+dat1 <- merge(dat, salaries, by = c("Name"))
+
+
+dat1$gameNum
+lastGame <- dat1 %>% group_by(Name) %>% summarise(
+  lastGameNum = max(gameNum),
+  lastMinutesPlayed = minutesPlayedPrevious[which(gameNum == lastGameNum)],
+  lastFantasyPoints = fantasyPoints[which(gameNum == lastGame)]
+)
+
+dat1 <- merge(dat1, lastGame, by = c("Name"))
+
+dat1$gameNum
+dat1$lastGameNum
+hist(dat1$pointsPerMinute)
+dat2 <- dat1[which(dat1$gameNum != dat1$lastGameNum), ]
 
 library(lme4)
 
-names(game_logs)
-game_logs$gameNum
-model <- lmer(formula = fantasyPoints ~ points * assists * three_pointers_made
-              *                gameNum + (1 | player_id), data = game_logs)
+str(dat2$player_id)
+dat2$player_id <- as.factor(dat2$player_id)
+
+dat2$minutesPlayedPrevious
+
+model <- lmer(formula = minutesPlayed ~ minutesPlayedPrevious +   (1 | player_id), 
+              data = dat2)
+
 summary(model)
+
+lastGameTest <- dat1 %>% group_by(Name) %>% summarise(
+  lastGameNum = max(gameNum),
+  player_id = player_id[which(gameNum == lastGameNum)],
+  minutesPlayedPrevious = minutesPlayedPrevious[which(gameNum == lastGameNum)],
+  lastFantasyPoints = fantasyPoints[which(gameNum == lastGameNum)],
+  lastFantasyPointsPerMinute = pointsPerMinute[which(gameNum == lastGameNum)]
+)
+
+lastGameTest$predictedMinutes <- predict(object = model, lastGameTest)
+
+plot(lastGameTest$predictedMinutes, lastGameTest$minutesPlayedPrevious)
+lastGameTest$PredictedPoints <- lastGameTest$predictedMinutes * lastGameTest$lastFantasyPointsPerMinute
+plot(lastGameTest$PredictedPoints, lastGameTest$lastFantasyPoints)
+
+
+predictions <- merge(lastGameTest, salaries, by = c("Name"))
+predictions$C <- ifelse(grepl(pattern = "C", x = predictions$Position), 1, 0)
+predictions$PF <- ifelse(grepl(pattern = "PF", x = predictions$Position), 1, 0)
+predictions$PG <- ifelse(grepl(pattern = "PG", x = predictions$Position), 1, 0)
+predictions$SG <- ifelse(grepl(pattern = "SG", x = predictions$Position), 1, 0)
+predictions$SF <- ifelse(grepl(pattern = "SF", x = predictions$Position), 1, 0)
+predictions$G <- ifelse(grepl(pattern = "G", x = predictions$Position), 1, 0)
+predictions$F <- ifelse(grepl(pattern = "F", x = predictions$Position), 1, 0)
+predictions$U <- 1
+
+
+
+predictions %>% filter(C == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(PF == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(SF == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(SG == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(SF == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(PG == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(Salary <= 6000) %>% arrange(-PredictedPoints)
+
+
+
 game_logs$predictedPoints <- predict(object = model, game_logs)
 
 hist(game_logs$fantasyPoints - 
