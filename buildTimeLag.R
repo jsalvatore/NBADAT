@@ -1,5 +1,5 @@
 # build time lag model
-dat <- dat %>% arrange(team_id, gameDate, player_id)
+dat <- dat %>% arrange(player_id, gameNum)
 
 #minutes played
 dat$timePlayPrevious <- NA
@@ -83,6 +83,12 @@ for (i in 2:NROW(dat)){
   }
 }
 
-
+#minutesPlayed
+dat$minutesPlayedPrevious <- NA
+for (i in 2:NROW(dat)){
+  if (dat$player_id[i] == dat$player_id[i - 1]){
+    dat$minutesPlayedPrevious[i] <- dat$minutesPlayed[i - 1]
+  }
+}
 
 
