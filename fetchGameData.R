@@ -1,10 +1,12 @@
 library("stattleshipR")
 library("dplyr")
-library("RMySQL")
+# library("RMySQL")
+# 
+# dbCon <- dbConnect(
+#   MySQL(), host = Credentials$host,
+#   port = 3306, user = Credentials$user, password = Credentials$password, dbname = "nba")
 
-dbCon <- dbConnect(
-  MySQL(), host = Credentials$host,
-  port = 3306, user = Credentials$user, password = Credentials$password, dbname = "nba")
+source("")
 
 ## Get your free token from www.stattleship.com
 set_token(Credentials$token)
@@ -14,13 +16,11 @@ set_token(Credentials$token)
 sport <- 'basketball'
 league <- 'nba'
 ep <- 'game_logs'
-q_body <- list(on = "yesterday")
+q_body <- list(since =  "2016-11-10")
 gls <- ss_get_result(sport=sport, league=league, ep=ep, query=q_body, walk=TRUE)
 game_logs<-do.call('rbind', lapply(gls, function(x) x$game_logs))  
 
-dbWriteTable(dbCon, value = game_logs, name = "gamelogs", append = TRUE, row.names = FALSE) 
-
-
+# dbWriteTable(dbCon, value = game_logs, name = "gamelogs", append = TRUE, row.names = FALSE) 
 
 
 
@@ -28,7 +28,7 @@ players<-do.call('rbind', lapply(gls, function(x) x$players))
 colnames(players)[1] <- 'player_id'
 players <- players[which(!duplicated(players$player_id)), ]
 
-dbWriteTable(dbCon, value = players, name = "players", append = TRUE, row.names = FALSE) 
+# dbWriteTable(dbCon, value = players, name = "players", append = TRUE, row.names = FALSE) 
 
 
 
@@ -39,7 +39,7 @@ teams$team <- paste(teams$name, teams$nickname)
 teams <- teams[c("team_id", "team")]
 teams <- teams[which(!duplicated(teams$team_id)), ]
 
-dbWriteTable(dbCon, value = teams, name = "teams", append = TRUE, row.names = FALSE) 
+# dbWriteTable(dbCon, value = teams, name = "teams", append = TRUE, row.names = FALSE) 
 
 
 
@@ -52,7 +52,7 @@ games$gameDate <- gsub(pattern = "on ", replacement = "", x = games$on)
 games$gameDate <- as.Date(games$gameDate, format = "%B %d, %Y")
 games$official_ids <- NULL
 
-dbWriteTable(dbCon, value = games, name = "games", append = TRUE, row.names = FALSE) 
+# dbWriteTable(dbCon, value = games, name = "games", append = TRUE, row.names = FALSE) 
 
 
 # end
