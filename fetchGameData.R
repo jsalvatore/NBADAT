@@ -6,7 +6,7 @@ library("dplyr")
 #   MySQL(), host = Credentials$host,
 #   port = 3306, user = Credentials$user, password = Credentials$password, dbname = "nba")
 
-source("")
+source("Credentials.R")
 
 ## Get your free token from www.stattleship.com
 set_token(Credentials$token)
