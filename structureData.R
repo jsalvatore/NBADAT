@@ -2,14 +2,14 @@ library("Hmisc")
 library("RMySQL")
 library(dplyr)
 
-dbCon <- dbConnect(
-  MySQL(), host = Credentials$host,
-  port = 3306, user = Credentials$user, password = Credentials$password, dbname = "nba")
-
-game_logs <- dbGetQuery(dbCon, "SELECT * FROM gamelogs;")
-players <- dbGetQuery(dbCon, "SELECT * FROM players;")
-teams <- dbGetQuery(dbCon, "SELECT * FROM teams;")
-games <- dbGetQuery(dbCon, "SELECT * FROM games;")
+# dbCon <- dbConnect(
+#   MySQL(), host = Credentials$host,
+#   port = 3306, user = Credentials$user, password = Credentials$password, dbname = "nba")
+# 
+# game_logs <- dbGetQuery(dbCon, "SELECT * FROM gamelogs;")
+# players <- dbGetQuery(dbCon, "SELECT * FROM players;")
+# teams <- dbGetQuery(dbCon, "SELECT * FROM teams;")
+# games <- dbGetQuery(dbCon, "SELECT * FROM games;")
 
 
 dat <- merge(players, game_logs, by='player_id')
@@ -18,11 +18,13 @@ dat <- merge(teams, dat, by = c("team_id"))
 dat <- merge(games, dat, by = c("game_id"))
 
 dat$gameDate <- as.Date(dat$gameDate)
-hist(dat$gameDate, breaks = "days", format = "%m/%d/%Y")
-table(dat$gameDate)
 
 
-
+dat <- dat %>% select(player_id, first_name, last_name, team_id, points, 
+               three_pointers_made, rebounds_total, 
+               assists, steals, blocks, turnovers, double_double, triple_double,
+               gameDate, time_played_total, game_started
+               )
 
 
 dat <- dat %>% arrange(team_id, gameDate, player_id)
@@ -43,15 +45,11 @@ describe(dat$fantasyPoints)
 dat <- dat %>% group_by(player_id) %>% arrange(gameDate) %>% mutate(gameNum = 1, 
                                                                                 gameNum = cumsum(gameNum)
 )
-dat$gameNum
-hist(dat$gameNum)
 
-hist(dat$fantasyPoints)
 
-table(players$position_abbreviation)
 
-dat %>% filter(gameDate == Sys.Date() - 1) %>% arrange(-fantasyPoints) %>%
-  select(first_name, last_name, position_abbreviation, fantasyPoints)
+dat <- dat %>% group_by(player_id) %>% mutate(lastGameNum = max(gameNum, na.rm = T))
+
 
 
 dat$Name <- paste(dat$first_name, dat$last_name)
@@ -59,6 +57,213 @@ dat$Name <- ifelse(dat$Name == "Moe Harkless", "Maurice Harkless", dat$Name)
 dat$Name <- ifelse(dat$Name == "Larry Nance", "Larry Nance Jr.", dat$Name)
 dat$minutesPlayed <- dat$time_played_total / 60
 dat$pointsPerMinute <- dat$fantasyPoints / dat$minutesPlayed
+
+
+##################################################
+# lag
+# pull out the last game 
+lastGame <- dat %>% group_by(player_id) %>% filter(gameNum == lastGameNum)
+
+dat <- dat %>% group_by(player_id) %>% filter(gameNum < lastGameNum) %>%
+  mutate(
+  difference = minutesPlayedPrevious - minutesPlayed,
+  avgVar = mean(difference, na.rm = T),
+  fpPerMinute = mean(sum(fantasyPoints) / sum(minutesPlayed)),
+  differenceFP = fantasyPointsPrevious - fantasyPoints,
+  avgVarFP = mean(differenceFP, na.rm = T)
+  )
+avgStats <- dat %>% group_by(player_id) %>% select(avgVar, fpPerMinute, avgVarFP, player_id)
+avgStats <- avgStats[which(!duplicated(avgStats$player_id)), ]
+lastGame <- merge(lastGame, avgStats, by = "player_id")
+
+
+# hold out
+set.seed(123)
+smp_size <- floor(0.65 * nrow(dat))
+train_cases <- sample(seq_len(nrow(dat)), size = smp_size)
+train <- dat[train_cases, ]
+test <- dat[-train_cases, ]
+
+
+library(lme4)
+model <- lmer(formula = minutesPlayed ~ minutesPlayedPrevious + I(minutesPlayedPrevious^2) + 
+                game_started + game_started*minutesPlayedPrevious +  avgVar  
+              +  (1 | player_id)
+              # + (1 | gameNum)  
+              , data = train)
+summary(model)
+
+test$predictedMinutes <- predict(object = model, test, allow.new.levels = TRUE)
+# test$predictedMinutes - test$minutesPlayed
+cor(test$predictedMinutes, test$minutesPlayed, use = "complete.obs")
+
+plot(test$predictedMinutes, test$minutesPlayed)
+
+train$predictedMinutes <- predict(object = model, train, allow.new.levels = TRUE)
+# test
+# plot(dat$fantasyPoints, dat$fantasyPointsPrevious)
+# cor(dat$fantasyPoints, dat$fantasyPointsPrevious, use = "complete.obs")
+
+# then run fantasy points model
+fpmodel <-  lmer(formula = fantasyPoints ~ predictedMinutes + I(predictedMinutes^2) +
+                   avgVarFP
+                 +  (1 | player_id)
+                 # + (1 | gameNum)  
+                 , data = train)
+summary(fpmodel)
+
+dat$predictedMinutes <- predict(model, dat, allow.new.levels = TRUE)
+dat$predictedFantasyPointsNew <- predict(fpmodel, dat,  allow.new.levels = TRUE)
+dat$predictedFantasyPoints <- dat$predictedMinutes * dat$fpPerMinute
+
+plot(dat$predictedFantasyPointsNew, dat$fantasyPoints)
+plot(dat$predictedFantasyPoints, dat$fantasyPoints)
+
+
+
+lastGame$predictedMinutes <- predict(object = model, lastGame, allow.new.levels = TRUE)
+lastGame$predictedFantasyPointsNew <- predict(object = fpmodel, lastGame, allow.new.levels = TRUE)
+plot(lastGame$predictedFantasyPointsNew, lastGame$fantasyPoints)
+lastGame$predictedFantasyPointsNew <- predict(fpmodel, lastGame,  allow.new.levels = TRUE)
+
+
+cor(lastGame$predictedFantasyPointsNew, lastGame$fantasyPoints, use = "complete.obs")
+cor(lastGame$predictedFantasyPoints, lastGame$fantasyPoints, use = "complete.obs")
+
+plot(lastGame$predictedFantasyPointsNew, lastGame$fantasyPoints)
+cor(lastGame$predictedFantasyPointsNew, lastGame$fantasyPoints, use = "complete.obs")
+cor(lastGame$PredictedPoints, lastGame$fantasyPoints, use = "complete.obs")
+plot(lastGame$PredictedPoints,lastGame$fantasyPoints)
+#
+
+
+
+
+
+
+test$PredictedPoints <- test$predictedMinutes * test$fpPerMinute
+plot(test$PredictedPoints, test$fantasyPoints)
+cor(test$PredictedPoints, test$fantasyPoints, use = "complete.obs")
+cor(test$PredictedPoints, test$fantasyPoints, use = "complete.obs") ^ 2
+sqrt(mean(test$predictedMinutes - test$minutesPlayed, na.rm = T)^2)
+sqrt(mean(test$poin - test$fantasyPoints, na.rm = T)^2)
+# > sqrt(mean(test$predictedMinutes - test$minutesPlayed, na.rm = T)^2)
+# [1] 1.052033
+# > sqrt(mean(test$PredictedPoints - test$fantasyPoints, na.rm = T)^2)
+# [1] 2.397914
+# new model
+# > sqrt(mean(test$predictedMinutes - test$minutesPlayed, na.rm = T)^2)
+# [1] 0.4513564
+# > sqrt(mean(test$PredictedPoints - test$fantasyPoints, na.rm = T)^2)
+# [1] 0.7266943
+# now test on the hold out
+
+
+lastGame$predictedMinutes <- predict(object = model, lastGame, allow.new.levels = TRUE)
+
+lastGame$PredictedPoints <- lastGame$predictedMinutes * lastGame$fpPerMinute
+
+plot(lastGame$PredictedPoints, lastGame$fantasyPoints)
+cor(lastGame$PredictedPoints, lastGame$fantasyPoints, use = "complete.obs")
+
+plot(lastGame$PredictedPoints, lastGame$PredictedPoints - lastGame$fantasyPoints)
+
+
+
+
+# 
+# model <- lmer(formula = minutesPlayed ~ minutesPlayedPrevious + I(minutesPlayedPrevious^2) + 
+#                 game_started + avgVar  + I(avgVar^2) + salary 
+#               +  (1 | player_id)
+#               # + (1 | gameNum)  
+#               , data = test)
+# summary(model)
+
+
+salaries <- read.csv("~/Downloads/DKSalaries (4).csv")
+dat1 <- merge(lastGame, salaries, by = c("Name"))
+
+lastGame %>% filter(Name %in% playersChosen$Name) %>% select(Name, minutesPlayed, predictedMinutes, 
+                                                    fantasyPoints, PredictedPoints, 
+                                                    gameNum, 
+                                                    gameDate
+                                                    )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+dat1 %>% filter(C == 1) %>% arrange(-PredictedPoints) %>% mutate(efficency =  Salary / PredictedPoints) %>%
+  select(Name, minutesPlayedPrevious, fantasyPoints, predictedMinutes, PredictedPoints, 
+         avgPointsPerMinute, Salary, efficency)
+dat1 %>% filter(PF == 1) %>% arrange(-PredictedPoints) %>% mutate(efficency =  Salary / PredictedPoints) %>%
+  select(Name, minutesPlayedPrevious, fantasyPoints, predictedMinutes, PredictedPoints, 
+         avgPointsPerMinute, Salary, efficency )
+dat1 %>% filter(SF == 1) %>% arrange(-PredictedPoints) %>% mutate(efficency =  Salary / PredictedPoints) %>%
+  select(Name, minutesPlayedPrevious, fantasyPoints, predictedMinutes, PredictedPoints, 
+         avgPointsPerMinute, Salary, efficency )
+dat1 %>% filter(SG == 1) %>% arrange(-PredictedPoints)%>% mutate(efficency =  Salary / PredictedPoints) %>%
+  select(Name, minutesPlayedPrevious, fantasyPoints, predictedMinutes, PredictedPoints, 
+         avgPointsPerMinute, Salary, efficency )
+dat1 %>% filter(PG == 1) %>% arrange(-PredictedPoints)%>% mutate(efficency =  Salary / PredictedPoints) %>%
+  select(Name, minutesPlayedPrevious, fantasyPoints, predictedMinutes, PredictedPoints, 
+         avgPointsPerMinute, Salary, efficency )
+
+
+dat1 %>% filter(F == 1) %>% arrange(-PredictedPoints)%>% mutate(efficency =  Salary / PredictedPoints) %>%
+  select(Name, team, minutesPlayedPrevious, fantasyPoints, predictedMinutes, PredictedPoints, 
+         avgPointsPerMinute, Salary, efficency )
+
+
+dat1 %>% filter(G == 1) %>% arrange(-PredictedPoints)%>% mutate(efficency =  Salary / PredictedPoints) %>%
+  select(Name, minutesPlayedPrevious, fantasyPoints, predictedMinutes, PredictedPoints, 
+         avgPointsPerMinute, Salary, efficency )
+
+
+
+dat1 %>% filter(Salary <= 6000) %>% arrange(-PredictedPoints)%>% 
+  select(Name, minutesPlayedPrevious, fantasyPoints, predictedMinutes, PredictedPoints, 
+         avgPointsPerMinute, Salary )
+
+library("lpSolve") 
+library(data.table) 
+#setup data
+df <- fread("basketball_data.csv")
+mm <- cbind(model.matrix(as.formula("FP~Pos"), df)[,2:5], ifelse(df$Pos == "C", 1, 0), df$Salary, df$FP)
+colnames(mm) <- c("pf", "pg", "sf", "sg", "c", "salary", 'fp')
+
+
+dat1$Position
+
+#setup solver
+mm <- t(mm)
+obj <- df$FP
+dir <- c('=', '=', '=', '=', '=', '<=', '<=')
+
+x <- 20000
+vals <- c()
+ptm <- proc.time()
+for(i in 1:1000){
+  rhs <- c(2, 2, 2, 2, 1, 60000, x)
+  lp <- lp(direction = 'max',
+           objective.in = obj,
+           all.bin = T,
+           const.rhs = rhs,
+           const.dir = dir,
+           const.mat = mm)
+  vals <- c(vals, lp$objval)
+  x <- lp$objval - 0.00001
+}
+proc.time() - ptm
 
 
 players$Name <- paste(players$first_name, players$last_name)
@@ -73,6 +278,26 @@ head(salaries)
 test <- merge(players, salaries, by = c("Name"))
 salaries$check <- salaries$Name %in% test$Name 
 
+
+predictions <- merge(lastGameTest, salaries, by = c("Name"))
+predictions$C <- ifelse(grepl(pattern = "C", x = predictions$Position), 1, 0)
+predictions$PF <- ifelse(grepl(pattern = "PF", x = predictions$Position), 1, 0)
+predictions$PG <- ifelse(grepl(pattern = "PG", x = predictions$Position), 1, 0)
+predictions$SG <- ifelse(grepl(pattern = "SG", x = predictions$Position), 1, 0)
+predictions$SF <- ifelse(grepl(pattern = "SF", x = predictions$Position), 1, 0)
+predictions$G <- ifelse(grepl(pattern = "G", x = predictions$Position), 1, 0)
+predictions$F <- ifelse(grepl(pattern = "F", x = predictions$Position), 1, 0)
+predictions$U <- 1
+
+
+
+predictions %>% filter(C == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(PF == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(SF == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(SG == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(SF == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(PG == 1) %>% arrange(-PredictedPoints)
+predictions %>% filter(Salary <= 6000) %>% arrange(-PredictedPoints)
 
 
 
