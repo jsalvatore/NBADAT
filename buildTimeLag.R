@@ -94,3 +94,10 @@ for (i in 2:NROW(dat)){
   }
 }
 
+#fantasy points 
+dat$fantasyPointsPrevious <- NA
+for (i in 2:NROW(dat)){
+  if (dat$player_id[i] == dat$player_id[i - 1]){
+    dat$fantasyPointsPrevious[i] <- dat$fantasyPoints[i - 1]
+  }
+}

@@ -20,7 +20,11 @@ dat <- merge(games, dat, by = c("game_id"))
 dat$gameDate <- as.Date(dat$gameDate)
 
 
-
+dat <- dat %>% select(player_id, first_name, last_name, team_id, points, 
+               three_pointers_made, rebounds_total, 
+               assists, steals, blocks, turnovers, double_double, triple_double,
+               gameDate, time_played_total, game_started
+               )
 
 
 dat <- dat %>% arrange(team_id, gameDate, player_id)
@@ -55,6 +59,7 @@ dat$minutesPlayed <- dat$time_played_total / 60
 dat$pointsPerMinute <- dat$fantasyPoints / dat$minutesPlayed
 
 
+##################################################
 # lag
 # pull out the last game 
 lastGame <- dat %>% group_by(player_id) %>% filter(gameNum == lastGameNum)
@@ -63,15 +68,13 @@ dat <- dat %>% group_by(player_id) %>% filter(gameNum < lastGameNum) %>%
   mutate(
   difference = minutesPlayedPrevious - minutesPlayed,
   avgVar = mean(difference, na.rm = T),
-  fpPerMinute = mean(sum(fantasyPoints) / sum(minutesPlayed))
+  fpPerMinute = mean(sum(fantasyPoints) / sum(minutesPlayed)),
+  differenceFP = fantasyPointsPrevious - fantasyPoints,
+  avgVarFP = mean(differenceFP, na.rm = T)
   )
-avgStats <- dat %>% group_by(player_id) %>% select(avgVar, fpPerMinute, player_id)
+avgStats <- dat %>% group_by(player_id) %>% select(avgVar, fpPerMinute, avgVarFP, player_id)
 avgStats <- avgStats[which(!duplicated(avgStats$player_id)), ]
 lastGame <- merge(lastGame, avgStats, by = "player_id")
-
-
-hist(dat$fpPerMinute[dat$fpPerMinute > 0])
-
 
 
 # hold out
@@ -83,9 +86,8 @@ test <- dat[-train_cases, ]
 
 
 library(lme4)
-
 model <- lmer(formula = minutesPlayed ~ minutesPlayedPrevious + I(minutesPlayedPrevious^2) + 
-                game_started + game_started*minutesPlayedPrevious +  avgVar  + I(avgVar^2) 
+                game_started + game_started*minutesPlayedPrevious +  avgVar  
               +  (1 | player_id)
               # + (1 | gameNum)  
               , data = train)
@@ -97,17 +99,63 @@ cor(test$predictedMinutes, test$minutesPlayed, use = "complete.obs")
 
 plot(test$predictedMinutes, test$minutesPlayed)
 
+train$predictedMinutes <- predict(object = model, train, allow.new.levels = TRUE)
+# test
+# plot(dat$fantasyPoints, dat$fantasyPointsPrevious)
+# cor(dat$fantasyPoints, dat$fantasyPointsPrevious, use = "complete.obs")
+
+# then run fantasy points model
+fpmodel <-  lmer(formula = fantasyPoints ~ predictedMinutes + I(predictedMinutes^2) +
+                   avgVarFP
+                 +  (1 | player_id)
+                 # + (1 | gameNum)  
+                 , data = train)
+summary(fpmodel)
+
+dat$predictedMinutes <- predict(model, dat, allow.new.levels = TRUE)
+dat$predictedFantasyPointsNew <- predict(fpmodel, dat,  allow.new.levels = TRUE)
+dat$predictedFantasyPoints <- dat$predictedMinutes * dat$fpPerMinute
+
+plot(dat$predictedFantasyPointsNew, dat$fantasyPoints)
+plot(dat$predictedFantasyPoints, dat$fantasyPoints)
+
+
+
+lastGame$predictedMinutes <- predict(object = model, lastGame, allow.new.levels = TRUE)
+lastGame$predictedFantasyPointsNew <- predict(object = fpmodel, lastGame, allow.new.levels = TRUE)
+plot(lastGame$predictedFantasyPointsNew, lastGame$fantasyPoints)
+lastGame$predictedFantasyPointsNew <- predict(fpmodel, lastGame,  allow.new.levels = TRUE)
+
+
+cor(lastGame$predictedFantasyPointsNew, lastGame$fantasyPoints, use = "complete.obs")
+cor(lastGame$predictedFantasyPoints, lastGame$fantasyPoints, use = "complete.obs")
+
+plot(lastGame$predictedFantasyPointsNew, lastGame$fantasyPoints)
+cor(lastGame$predictedFantasyPointsNew, lastGame$fantasyPoints, use = "complete.obs")
+cor(lastGame$PredictedPoints, lastGame$fantasyPoints, use = "complete.obs")
+plot(lastGame$PredictedPoints,lastGame$fantasyPoints)
+#
+
+
+
+
+
+
 test$PredictedPoints <- test$predictedMinutes * test$fpPerMinute
 plot(test$PredictedPoints, test$fantasyPoints)
 cor(test$PredictedPoints, test$fantasyPoints, use = "complete.obs")
 cor(test$PredictedPoints, test$fantasyPoints, use = "complete.obs") ^ 2
 sqrt(mean(test$predictedMinutes - test$minutesPlayed, na.rm = T)^2)
-sqrt(mean(test$PredictedPoints - test$fantasyPoints, na.rm = T)^2)
+sqrt(mean(test$poin - test$fantasyPoints, na.rm = T)^2)
 # > sqrt(mean(test$predictedMinutes - test$minutesPlayed, na.rm = T)^2)
 # [1] 1.052033
 # > sqrt(mean(test$PredictedPoints - test$fantasyPoints, na.rm = T)^2)
 # [1] 2.397914
-
+# new model
+# > sqrt(mean(test$predictedMinutes - test$minutesPlayed, na.rm = T)^2)
+# [1] 0.4513564
+# > sqrt(mean(test$PredictedPoints - test$fantasyPoints, na.rm = T)^2)
+# [1] 0.7266943
 # now test on the hold out
 
 

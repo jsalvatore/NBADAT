@@ -16,7 +16,7 @@ set_token(Credentials$token)
 sport <- 'basketball'
 league <- 'nba'
 ep <- 'game_logs'
-q_body <- list(since =  "2016-11-10")
+q_body <- list(since =  "2016-11-15")
 gls <- ss_get_result(sport=sport, league=league, ep=ep, query=q_body, walk=TRUE)
 game_logs<-do.call('rbind', lapply(gls, function(x) x$game_logs))  
 
@@ -53,7 +53,6 @@ games$gameDate <- as.Date(games$gameDate, format = "%B %d, %Y")
 games$official_ids <- NULL
 
 # dbWriteTable(dbCon, value = games, name = "games", append = TRUE, row.names = FALSE) 
-
 
 # end
 
