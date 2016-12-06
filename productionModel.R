@@ -1,8 +1,8 @@
 library("Hmisc")
 library("RMySQL")
 library("dplyr")
+library("lpSolve")
 
-dat <- merge(players, game_logs, by='player_id')
 dat$team_id <- dat$team_id.x
 dat <- merge(teams, dat, by = c("team_id"))
 dat <- merge(games, dat, by = c("game_id"))
@@ -145,10 +145,25 @@ for (i in 2:NROW(dat)){
     dat$fantasyPointsPrevious[i] <- dat$fantasyPoints[i - 1]
   }
 }
+
+#fantasy points 
+dat$improve <- NA
+for (i in 2:NROW(dat)) {
+  if (dat$player_id[i] == dat$player_id[i - 1]) {
+    dat$improve[i] <-
+      ifelse(dat$fantasyPoints[i] - dat$fantasyPoints[i - 1] > 0, 1,
+             ifelse(dat$fantasyPoints[i] - dat$fantasyPoints[i - 1] == 0, 0, -1))
+  }
+}
+dat$improve <- ifelse(is.na(dat$improve), 0, dat$improve)
 ########################################################
 # build model
 ########################################################
+dat <- dat %>% group_by(player_id) %>% arrange(gameNum) %>% mutate(trending = cumsum(improve))
 
+check <- dat %>% arrange(player_id, gameNum) %>% select(Name, gameNum, fantasyPoints, improve, trending)
+
+  
 
 
 lastGame <- dat %>% group_by(player_id) %>% filter(gameNum == lastGameNum)
@@ -161,15 +176,20 @@ dat <- dat %>% group_by(player_id) %>% filter(gameNum < lastGameNum) %>%
     differenceFP = fantasyPointsPrevious - fantasyPoints,
     avgVarFP = mean(differenceFP, na.rm = T),
     played0 = ifelse(minutesPlayed == 0, TRUE, FALSE), 
-    maxFP = max(fantasyPoints, na.rm = T)
+    maxFP = max(fantasyPoints, na.rm = T), 
+    avgPoints = mean(points, na.rm = T), 
+    maxGameNum = max(gameNum),
+    trendingMax = max(trending[which(gameNum == maxGameNum)])
   )
+check <- dat %>% arrange(player_id, gameNum) %>% select(Name, gameNum, fantasyPoints, improve, trending, avgPoints, maxGameNum, trendingMax)
 avgStats <- dat %>% group_by(player_id) %>% 
   select(difference, avgVar, fpPerMinute, 
-         differenceFP, avgVarFP, played0, maxFP,
+         differenceFP, avgVarFP, played0, maxFP, avgPoints,
          player_id)
 avgStats <- avgStats[which(!duplicated(avgStats$player_id)), ]
 lastGame <- merge(lastGame, avgStats, by = "player_id")
-allData <- rbind(dat, lastGame)
+allData <- rbind.data.frame(dat, lastGame)
+
 
 
 # hold out
@@ -189,15 +209,16 @@ model <- lmer(formula = minutesPlayed ~ minutesPlayedPrevious + I(minutesPlayedP
               , data = train)
 summary(model)
 
+
 train$predictedMinutes <- predict(object = model, train, allow.new.levels = TRUE)
 # dat$predictedMinutes - dat$minutesPlayed
 cor(train$predictedMinutes, train$minutesPlayed, use = "complete.obs")
 
 plot(train$predictedMinutes, train$minutesPlayed)
 
-
+names(train)
 fpmodel <-  lmer(formula = fantasyPoints ~ predictedMinutes + I(predictedMinutes^2) +
-                   avgVarFP + maxFP
+                   avgVarFP + maxFP + avgPoints + game_started
                  +  (1 | player_id)
                  # + (1 | gameNum)  
                  , data = train)
@@ -227,22 +248,25 @@ sqrt(mean(dat$PredictedPoints - dat$fantasyPoints, na.rm = T)^2)
 # lastGameData <- dat %>% group_by(player_id) %>% filter(gameNum == lastGameNum)
 lastGame$predictedMinutes <- predict(model, lastGame, allow.new.levels = T)
 lastGame$PredictedPoints <- predict(fpmodel, lastGame, allow.new.levels = T)
-names(dat)
-names(lastGame)
+
+plot(lastGame$PredictedPoints, lastGame$fantasyPoints)
+cor(lastGame$PredictedPoints, lastGame$fantasyPoints, use = "complete.obs")
+
 
 
 ### The predict all the data
 allData$predictedMinutes <- predict(model, allData, allow.new.levels = T)
 allData$PredictedPoints <- predict(fpmodel, allData, allow.new.levels = T)
 
-lastGame <- allData %>% group_by(player_id) %>% filter(gameNum == lastGameNum)
+lastGameFinal <- allData %>% group_by(player_id) %>% filter(gameNum == lastGameNum)
+
 
 
 salaries <- read.csv("~/Downloads/DKSalaries (23).csv")
+
+salaries <- read.csv("C:/Users/joe/Downloads/DKSalaries (1).csv")
 # salaries <- salaries %>% filter(!(Name %in% c('Danilo Gallinari','Dion Waiters', 'Anthony Davis')))
 
-salaries <- salaries %>% filter(!(Name %in% 
-c('Rodney McGruder')))
 dat1 <- merge(lastGame, salaries, by = c("Name"))
 
 
@@ -303,11 +327,16 @@ sol <- lp(objective.in = obj,
 sol 
 dat1$solution <- sol$solution
 table(dat1$Position, dat1$solution)
-dat1 %>% filter(solution == 1) %>% select(Name, 
+dat1 %>% filter(solution == 1) %>% mutate(differenceMinutes = minutesPlayed - predictedMinutes, 
+                                          differencePoints = fantasyPoints - PredictedPoints
+                                          ) %>% select(Name, 
                                           teamAbbrev,
-                                          Position, predictedMinutes, PredictedPoints, Salary, 
-                                          fantasyPoints) 
-playersChosen <- dat1 %>% filter(solution == 1) 
+                                          Position, 
+                                          minutesPlayed, predictedMinutes, differenceMinutes, 
+                                          fantasyPoints, PredictedPoints, differencePoints,
+                                          Salary
+                                          ) 
+playersChosen <- data.frame(allData) %>% filter(Name == 'Evan Fournier') 
 
 dat1 %>% filter(solution == 1) %>% summarise(sumFP = sum(PredictedPoints))
 dat1 %>% filter(solution == 1) %>% summarise(sumFP = sum(fantasyPointsPrevious))
