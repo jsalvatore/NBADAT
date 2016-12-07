@@ -207,9 +207,9 @@ library(lme4)
 
 model <- lmer(formula = minutesPlayed ~ minutesPlayedPrevious + I(minutesPlayedPrevious^2) + 
                 game_started + game_started*minutesPlayedPrevious +  avgVar  +
-                played0
+                played0 + gameNum
               +  (1 | player_id)
-              # + (1 | gameNum)  
+              + (1 | game_started)
               , data = train)
 summary(model)
 
@@ -217,6 +217,9 @@ summary(model)
 train$predictedMinutes <- predict(object = model, train, allow.new.levels = TRUE)
 # dat$predictedMinutes - dat$minutesPlayed
 cor(train$predictedMinutes, train$minutesPlayed, use = "complete.obs")
+test$predictedMinutes <- predict(object = model, test, allow.new.levels = TRUE)
+cor(test$predictedMinutes, test$minutesPlayed, use = "complete.obs")
+
 
 plot(train$predictedMinutes, train$minutesPlayed)
 plot(model)
@@ -224,10 +227,17 @@ names(train)
 fpmodel <-  lmer(formula = fantasyPoints ~ predictedMinutes + I(predictedMinutes^2) +
                    avgVarFP + maxFP + avgPoints + game_started + improve + trending + trendingCurrent
                  +  (1 | player_id)
-                 # + (1 | gameNum)  
+                 + (1 | game_started) + (1 | improve)
                  , data = train)
 summary(fpmodel)
 plot(fpmodel)
+
+
+test$PredictedPoints <- predict(object = fpmodel, test, allow.new.levels = TRUE)
+cor(test$PredictedPoints, test$fantasyPoints, use = "complete.obs")
+
+
+
 
 dat$predictedMinutes <- predict(model, dat, allow.new.levels = TRUE)
 dat$PredictedPoints <- predict(fpmodel, dat,  allow.new.levels = TRUE)
@@ -267,6 +277,8 @@ allData$PredictedPoints <- predict(fpmodel, allData, allow.new.levels = T)
 
 
 #################################################################################
+#################################################################################
+#################################################################################
 fullData <- fullData %>% group_by(player_id) %>%
   mutate(
     difference = minutesPlayedPrevious - minutesPlayed,
@@ -281,11 +293,13 @@ fullData <- fullData %>% group_by(player_id) %>%
     trendingCurrent = max(trending[which(gameNum == maxGameNum)])
   )
 
+
+
 model <- lmer(formula = minutesPlayed ~ minutesPlayedPrevious + I(minutesPlayedPrevious^2) + 
                 game_started + game_started*minutesPlayedPrevious +  avgVar  +
-                played0
+                played0 + gameNum
               +  (1 | player_id)
-              # + (1 | gameNum)  
+              + (1 | game_started) 
               , data = fullData)
 summary(model)
 
@@ -298,7 +312,7 @@ plot(model)
 fpmodel <-  lmer(formula = fantasyPoints ~ predictedMinutes + I(predictedMinutes^2) +
                    avgVarFP + maxFP + avgPoints + game_started + improve + trending + trendingCurrent
                  +  (1 | player_id)
-                 # + (1 | gameNum)  
+                 + (1 | game_started) + (1 | improve)
                  , data = fullData)
 summary(fpmodel)
 plot(fpmodel)
@@ -321,6 +335,12 @@ lastGameFinal <- fullData %>% group_by(player_id) %>% filter(gameNum == lastGame
 
 
 
+
+#################################################################################
+
+#################################################################################
+
+#################################################################################
 
 #################################################################################
 
@@ -410,7 +430,7 @@ dat1 %>% filter(solution == 1) %>% mutate(differenceMinutes = minutesPlayed - pr
                                           fantasyPoints, PredictedPoints, differencePoints,
                                           Salary
                                           ) 
-playersChosen <- data.frame(allData) %>% filter(Name == 'Marquese Chriss') 
+playersChosen <- data.frame(fullData) %>% filter(Name == 'Bradley Beal') 
 
 dat1 %>% filter(solution == 1) %>% summarise(sumFP = sum(PredictedPoints))
 dat1 %>% filter(solution == 1) %>% summarise(sumFP = sum(fantasyPointsPrevious))
