@@ -27,6 +27,7 @@ dat$fantasyPoints <- dat$points * 1 +
   dat$double_double * 1.5 +
   dat$triple_double * 3
 describe(dat$fantasyPoints)
+hist((dat$fantasyPoints))
 
 dat <- dat %>% group_by(player_id) %>% arrange(gameDate) %>% mutate(gameNum = 1, 
                                                                     gameNum = cumsum(gameNum)
